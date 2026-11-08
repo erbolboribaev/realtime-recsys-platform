@@ -247,3 +247,42 @@ def test_web_files_are_served_and_do_not_shadow_the_api(tmp_path):
     assert "shop" in http.get("/").text
     assert http.get("/health").json()["status"] == "ok"
     assert http.get("/recommend", params={"user_id": bundle.user_ids[0]}).status_code == 200
+
+
+# --- admin dashboard ---------------------------------------------------------------------
+
+
+def admin_client(token=None, events=None):
+    from recsys.monitoring import RequestWindow
+    from recsys.serving.admin import AdminSupport
+    from recsys.serving.app import Storefront
+    from test_monitoring import FakeRedis
+
+    service, _, bundle, _ = make_service(1.0)
+    admin = AdminSupport(FakeRedis(), RequestWindow(), token=token)
+    storefront = Storefront(StoreCatalog(), events or FakeEvents())
+    return TestClient(create_app(service, storefront=storefront, admin=admin)), bundle
+
+
+def test_admin_stats_counts_lists_and_actions_per_variant():
+    http, bundle = admin_client()
+    request_id = http.get("/recommend", params={"user_id": bundle.user_ids[0]}).json()["request_id"]
+    body = {"user_id": "u1", "item_id": "i1", "event_type": "view", "request_id": request_id}
+    assert http.post("/events", json=body).status_code == 202
+    stats = http.get("/admin/stats").json()
+    assert stats["traffic"]["requests_in_window"] == 1
+    assert stats["traffic"]["variants"]["treatment"]["actions"] == 1
+    assert stats["services"]["api"]["alive"] is True
+    assert stats["services"]["feature_job"]["alive"] is False  # nothing has beaten yet
+
+
+def test_admin_stats_needs_the_token_when_one_is_set():
+    http, _ = admin_client(token="secret")
+    assert http.get("/admin/stats").status_code == 401
+    assert http.get("/admin/stats", headers={"X-Admin-Token": "nope"}).status_code == 401
+    assert http.get("/admin/stats", headers={"X-Admin-Token": "secret"}).status_code == 200
+
+
+def test_admin_route_is_absent_without_admin_support():
+    http, _ = client()
+    assert http.get("/admin/stats").status_code == 404

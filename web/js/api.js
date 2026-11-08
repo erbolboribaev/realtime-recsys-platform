@@ -37,6 +37,11 @@ const httpApi = {
     });
     if (!res.ok) throw new Error(`POST /events failed with ${res.status}`);
   },
+  async getStats(token) {
+    const res = await fetch("/admin/stats", { headers: token ? { "X-Admin-Token": token } : {} });
+    if (!res.ok) throw Object.assign(new Error(`GET /admin/stats failed with ${res.status}`), { status: res.status });
+    return res.json();
+  },
   // SSE: "explanation" carries {text, source}; "timeout" means nothing arrived and no fallback exists.
   streamExplanation(requestId, { onText, onDone, onError }) {
     if (!requestId) { onError?.(new Error("explanations are off")); return () => {}; }

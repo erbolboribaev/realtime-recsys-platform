@@ -52,6 +52,7 @@ class Settings:
     models_dir: str = "models"
     web_dir: str = "web"  # the storefront files the API serves at /
     ab_treatment_share: float = 0.5
+    admin_token: str = ""  # when set, /admin/stats needs the X-Admin-Token header
 
     qdrant_url: str = "http://localhost:6333"
     qdrant_collection: str = "items"

@@ -21,6 +21,7 @@ from recsys.config import Settings
 from recsys.llm.catalog import SimulatedCatalog
 from recsys.llm.explain import Explainer
 from recsys.llm.queue import ExplainRequest, load_result, store_result
+from recsys.monitoring import beat, count
 from recsys.serving.features import read_user_state
 
 log = logging.getLogger("recsys.llm.worker")
@@ -44,7 +45,14 @@ class ExplainWorker:
         recommended = [i for i in map(self._catalog.describe, request.items) if i]
         explanation = self._explainer.explain(history, recommended)
         stored = store_result(self._redis, request.request_id, explanation, self._ttl)
+        if stored:
+            count(self._redis, "explain", explanation.source)
+            if explanation.cached:
+                count(self._redis, "explain", "cached")
         return "done" if stored else "duplicate"
+
+    def heartbeat(self) -> None:
+        beat(self._redis, "explain-worker")
 
 
 def run(
@@ -55,6 +63,7 @@ def run(
 ) -> dict[str, int]:
     stats = {"done": 0, "duplicate": 0, "invalid": 0}
     while not should_stop():
+        worker.heartbeat()
         batches = consumer.poll(timeout_ms=poll_timeout_ms)
         if not batches:
             continue

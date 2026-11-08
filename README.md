@@ -259,7 +259,39 @@ Each action is sent to `POST /events` and lands on the `user-events` topic with 
 list it came from, so A/B analysis can credit it to the right variant. The page also runs on
 its own with demo data: open `web/index.html` through any static server with `?mock=1`.
 
-Product names and prices come from `GET /items?ids=...`. Frontend tests: `node --test web/tests/`.
+Product names and prices come from `GET /items?ids=...`. `?shopper=user_00009` opens the page as a
+given shopper. Frontend tests: `node --test "web/tests/*.test.js"`.
+
+## Dashboard
+
+`http://127.0.0.1:8000/admin.html` shows the platform's state and refreshes every 3 seconds:
+
+- whether the API, Redis, the feature job and the explanation worker are running (the two jobs
+  write a heartbeat key to Redis that expires after 30 seconds, so a dead job turns red by itself),
+- lists served per minute and response time (typical and slowest 5%) over the last 5 minutes,
+- per variant: lists shown, actions taken and the action rate. The comparison between the
+  baseline and the new ranker appears only after 30 lists per variant, so a few clicks never read
+  as a result,
+- AI answers (written by the model, template, reused from cache) and today's spend against the cap.
+
+The numbers come from `GET /admin/stats`. Traffic figures are kept in the API process, so with
+several API replicas each would report its own share. Set `ADMIN_TOKEN` to require an
+`X-Admin-Token` header (the page sends it from `?token=...`); with no token the route is open,
+which is fine for a local demo and not for a public deployment.
+
+## End-to-end test
+
+`tests/test_e2e_storefront.py` starts the real API app and the real recommendation service with an
+in-memory Redis, opens the shop in headless Chromium, buys a product and checks that the event is
+published with the list's id and that the bought product leaves the next list. A second test
+opens the dashboard and checks that it reflects the traffic and notices a stopped job.
+
+```bash
+pip install playwright && playwright install chromium
+pytest tests/test_e2e_storefront.py -v
+```
+
+Without Playwright the tests are skipped; CI sets `E2E_REQUIRED=1` so a missing browser fails.
 
 ## Roadmap
 
@@ -269,7 +301,7 @@ Product names and prices come from `GET /items?ids=...`. Frontend tests: `node -
 | 2 | Features and retrieval: ALS, Qdrant, MLflow, Redis feature job (done); Feast deferred | Recall@50 above the popularity baseline (met offline) |
 | 3 | Ranker and API: LightGBM (ONNX), FastAPI, A/B groups, impressions (done) | NDCG@10 above ALS (met: 0.1271 vs 0.1106), p95 under 100 ms (met: 43.7 ms) |
 | 4 | LLM layer: gateway, worker, SSE, evals, cost cap (done) | Evals pass (met: 100% on 30 unseen cases), daily cost within cap (met: ~$0.00005 per explanation, hard cap enforced) |
-| 5 | Frontend and dashboard: storefront (done), experiments panel | End-to-end test passes, dashboard shows live data |
+| 5 | Frontend and dashboard: storefront, admin dashboard, end-to-end test (done) | End-to-end test passes, dashboard shows live data |
 | 6 | Kubernetes and Terraform: Helm, Argo CD, KEDA, observability, canary | Full stack on kind, 200 req/s load test |
 
 ## Project layout
@@ -282,7 +314,7 @@ src/recsys/
   ml/                dataset + time split, metrics, baseline, ALS, index, retrieval, tracking,
                      shared feature logic, rankers, publish
   serving/           model bundle, Redis feature readers, A/B, recommendation service, API, storefront
-web/                 shop page (HTML, CSS, JavaScript modules) and its tests
+web/                 shop page, admin dashboard (HTML, CSS, JavaScript modules) and their tests
 infra/
   compose/           local Docker Compose stack
   docker/            application image

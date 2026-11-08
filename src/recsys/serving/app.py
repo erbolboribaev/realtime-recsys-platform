@@ -10,7 +10,7 @@ import logging
 from dataclasses import dataclass
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi import Path as PathParam
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -21,6 +21,7 @@ from recsys.events.schema import EventType
 from recsys.llm.fallback import store_request, template_for_request
 from recsys.llm.queue import ExplainPublisher, ExplainRequest, load_result
 from recsys.llm.sse import sse_events
+from recsys.serving.admin import AdminSupport, build_stats
 from recsys.serving.service import DependencyError, RecommendationService
 from recsys.serving.storefront import EventPublisher, build_event, describe_items
 
@@ -59,6 +60,7 @@ def create_app(
     service: RecommendationService,
     explain_support: ExplainSupport | None = None,
     storefront: Storefront | None = None,
+    admin: AdminSupport | None = None,
 ) -> FastAPI:
     app = FastAPI(title="Recommendation API")
 
@@ -83,6 +85,8 @@ def create_app(
             raise HTTPException(
                 status_code=503, detail=f"dependency unavailable: {error}"
             ) from error
+        if admin is not None:
+            admin.window.record_list(result.request_id, result.variant, result.latency_ms)
         body = {
             "request_id": result.request_id,
             "user_id": result.user_id,
@@ -128,6 +132,14 @@ def create_app(
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
 
+    if admin is not None:
+
+        @app.get("/admin/stats")
+        def admin_stats(x_admin_token: str | None = Header(default=None)) -> dict:
+            if admin.token and x_admin_token != admin.token:
+                raise HTTPException(status_code=401, detail="admin token required")
+            return build_stats(admin, health())
+
     if storefront is not None:
 
         @app.get("/items")
@@ -145,6 +157,8 @@ def create_app(
             except Exception as error:
                 log.warning("could not publish an action", exc_info=True)
                 raise HTTPException(status_code=503, detail="event stream unavailable") from error
+            if admin is not None:
+                admin.window.record_action(action.request_id)
             return {"event_id": event.event_id}
 
         # Mounted last so it never shadows the API routes above.
@@ -234,6 +248,16 @@ def build_storefront(settings: Settings, catalog) -> Storefront:
     return Storefront(catalog, events, settings.web_dir)
 
 
+def build_admin(settings: Settings) -> AdminSupport:
+    import redis as redis_lib
+
+    return AdminSupport(
+        redis_lib.Redis.from_url(settings.redis_url),
+        daily_budget_usd=settings.llm_daily_budget_usd,
+        token=settings.admin_token or None,
+    )
+
+
 def create_app_from_env() -> FastAPI:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     settings = Settings.from_env()
@@ -242,4 +266,5 @@ def create_app_from_env() -> FastAPI:
         build_service(settings),
         build_explain_support(settings, catalog),
         build_storefront(settings, catalog),
+        build_admin(settings),
     )

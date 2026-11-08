@@ -21,6 +21,11 @@ jobs:
       - name: Install
         run: pip install -e ".[dev,ml,rank,serve]"
 
+      - name: Install the browser for the end-to-end test
+        run: |
+          pip install playwright
+          playwright install --with-deps chromium
+
       - name: Lint
         run: |
           ruff check src tests
@@ -28,13 +33,15 @@ jobs:
 
       - name: Tests
         run: pytest -v
+        env:
+          E2E_REQUIRED: "1"
 
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
 
       - name: Storefront tests
-        run: node --test web/tests/
+        run: node --test "web/tests/*.test.js"
 
   compose:
     runs-on: ubuntu-latest

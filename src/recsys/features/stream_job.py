@@ -17,6 +17,7 @@ from pydantic import ValidationError
 from recsys.config import Settings
 from recsys.events.schema import UserEvent
 from recsys.features.online import apply_event
+from recsys.monitoring import beat, count
 
 log = logging.getLogger("recsys.features")
 
@@ -31,9 +32,11 @@ def run(
     """Main loop. ``consumer`` only needs ``poll(timeout_ms)`` and ``commit()``."""
     stats = {"applied": 0, "duplicates": 0, "invalid": 0}
     while not should_stop():
+        beat(redis, "feature-job")
         batches = consumer.poll(timeout_ms=poll_timeout_ms)
         if not batches:
             continue
+        before = dict(stats)
         for messages in batches.values():
             for message in messages:
                 try:
@@ -47,6 +50,7 @@ def run(
                 else:
                     stats["duplicates"] += 1
         consumer.commit()  # only after the whole batch is in Redis
+        count(redis, "feature-job", "applied", stats["applied"] - before["applied"])
         log.info("batch done: %s", stats)
     return stats
 

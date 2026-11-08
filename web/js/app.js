@@ -1,27 +1,18 @@
 import { api } from "./api.js";
 import { categoryHue, clock, formatPrice, pickRandom, shopperIds, shopperName } from "./format.js";
+import { initChrome } from "./chrome.js";
+import { $, h } from "./dom.js";
 import { applyStatic, setLang, t } from "./i18n.js";
 import { iconSvg } from "./icons.js";
 
-const $ = (id) => document.getElementById(id);
 const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
-const SHOPPERS = shopperIds();
+const BASE_SHOPPERS = shopperIds();
+const requested = new URLSearchParams(location.search).get("shopper"); // lets a link or a test open as a given shopper
+const SHOPPERS = requested && !BASE_SHOPPERS.includes(requested) ? [requested, ...BASE_SHOPPERS] : BASE_SHOPPERS;
 const ACTIONS = [["view", "card.view", "act.view"], ["add_to_cart", "card.cart", "act.cart"], ["purchase", "card.buy", "act.buy"]];
 
-const state = { userId: SHOPPERS[0], items: [], info: new Map(), shown: new Set(), activity: [], events: 0, stopStream: null, busy: false, attributionId: null, sourceKey: "src.none" };
+const state = { userId: requested || SHOPPERS[0], items: [], info: new Map(), shown: new Set(), activity: [], events: 0, stopStream: null, busy: false, attributionId: null, sourceKey: "src.none" };
 
-function h(tag, props = {}, ...kids) {
-  const el = document.createElement(tag);
-  for (const [k, v] of Object.entries(props)) {
-    if (k === "class") el.className = v;
-    else if (k === "text") el.textContent = v;
-    else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
-    else if (k === "style") el.style.cssText = v;
-    else el.setAttribute(k, v);
-  }
-  kids.flat().forEach((c) => c != null && el.append(c));
-  return el;
-}
 
 /* ---------- static sections ---------- */
 function renderStatic() {
@@ -33,7 +24,7 @@ function renderStatic() {
 function renderCards(newIds = new Set()) {
   const cards = state.items.map((rec, i) => {
     const info = state.info.get(rec.item_id) ?? { name: rec.item_id, category: "", price: 0 };
-    return h("article", { class: "card" },
+    return h("article", { class: "card", "data-item": rec.item_id },
       h("div", { class: "cover", style: `--h:${categoryHue(info.category)}` },
         Object.assign(h("span"), { innerHTML: iconSvg(info.category) }).firstChild,
         newIds.has(rec.item_id) ? h("span", { class: "new", text: t("card.new") }) : null,
@@ -145,28 +136,12 @@ function switchShopper(id) {
 }
 
 /* ---------- chrome: language, theme ---------- */
-function safe(fn) { try { return fn(); } catch { return null; } }
-function initChrome() {
-  document.querySelectorAll("[data-lang]").forEach((b) => b.addEventListener("click", () => {
-    setLang(b.dataset.lang); safe(() => localStorage.setItem("lang", b.dataset.lang));
-    document.querySelectorAll("[data-lang]").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
-    applyStatic(); renderActivity(); if (state.items.length) renderCards(); setPulse("p-source", t(state.sourceKey));
-  }));
-  $("theme").addEventListener("click", () => {
-    const dark = document.documentElement.dataset.theme === "dark" || (!document.documentElement.dataset.theme && matchMedia("(prefers-color-scheme: dark)").matches);
-    const next = dark ? "light" : "dark";
-    document.documentElement.dataset.theme = next; safe(() => localStorage.setItem("theme", next));
-  });
-  const savedTheme = safe(() => localStorage.getItem("theme")); if (savedTheme) document.documentElement.dataset.theme = savedTheme;
-  const savedLang = safe(() => localStorage.getItem("lang"));
-  if (savedLang === "uz") document.querySelector('[data-lang="uz"]').click();
-}
-
 renderStatic();
 setLang("en");
 applyStatic();
-initChrome();
+initChrome({ onLang: () => { renderActivity(); if (state.items.length) renderCards(); setPulse("p-source", t(state.sourceKey)); } });
 renderActivity();
+$("shopper").value = state.userId;
 $("shopper").addEventListener("change", (e) => switchShopper(e.target.value));
 $("random").addEventListener("click", () => switchShopper(pickRandom(SHOPPERS, state.userId)));
 $("refresh").addEventListener("click", () => load());
