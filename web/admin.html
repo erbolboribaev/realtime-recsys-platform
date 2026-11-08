@@ -47,6 +47,16 @@
 
   <p class="notice" id="adm-notice" hidden></p>
 
+  <form class="login panel" id="login" hidden>
+    <label for="token" data-i18n="adm.tokenLabel">Admin token</label>
+    <div class="login-row">
+      <input id="token" name="token" type="password" autocomplete="current-password" required>
+      <button type="submit" class="btn primary" data-i18n="adm.signIn">Open dashboard</button>
+    </div>
+  </form>
+
+  <div class="data" id="data">
+
   <section aria-labelledby="svc-title">
     <h2 class="blk-title" id="svc-title" data-i18n="adm.services">Is everything running?</h2>
     <ul class="svc-grid" id="svc"></ul>
@@ -70,6 +80,7 @@
       <div id="ai"></div>
     </article>
   </section>
+  </div>
 </main>
 
 <footer class="foot slim">

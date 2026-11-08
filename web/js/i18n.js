@@ -84,7 +84,10 @@ const DICT = {
   "adm.updated": "Updated",
   "adm.every": "refreshes every 3 s",
   "adm.error": "Cannot reach the API. Trying again.",
-  "adm.denied": "This dashboard needs an admin token. Add ?token=... to the address."
+  "adm.denied": "This dashboard is private. Enter the admin token to open it.",
+  "adm.tokenLabel": "Admin token",
+  "adm.signIn": "Open dashboard",
+  "adm.badToken": "That token was not accepted."
 },
   uz: {
   "nav.skip": "Do'konga o'tish",
@@ -170,7 +173,10 @@ const DICT = {
   "adm.updated": "Yangilandi",
   "adm.every": "har 3 soniyada yangilanadi",
   "adm.error": "API ga ulanib bo'lmadi. Qayta urinilmoqda.",
-  "adm.denied": "Bu panel uchun admin tokeni kerak. Manzilga ?token=... qo'shing."
+  "adm.denied": "Bu panel yopiq. Ochish uchun admin tokenini kiriting.",
+  "adm.tokenLabel": "Admin tokeni",
+  "adm.signIn": "Panelni ochish",
+  "adm.badToken": "Bu token qabul qilinmadi."
 }
 };
 

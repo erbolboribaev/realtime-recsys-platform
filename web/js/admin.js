@@ -7,7 +7,14 @@ import { MIN_LISTS_FOR_COMPARISON, ago, answerShares, lift, serviceState, sparkP
 
 const POLL_MS = 3000;
 const HISTORY = 40;
-const token = new URLSearchParams(location.search).get("token");
+function stored() { try { return sessionStorage.getItem("adminToken"); } catch { return null; } }
+function remember(value) { try { sessionStorage.setItem("adminToken", value); } catch { /* private mode: the token lives in memory only */ } }
+let token = new URLSearchParams(location.search).get("token") || stored();
+if (token) {
+  remember(token);
+  if (location.search.includes("token=")) history.replaceState(null, "", location.pathname); // keep it out of the address bar
+}
+let submitted = false;
 const series = { rpm: [], p95: [] };
 let latest = null;
 let paused = false;
@@ -124,10 +131,20 @@ async function poll() {
     series.p95.push(stats.traffic?.latency_ms?.p95 ?? null);
     Object.values(series).forEach((s) => { while (s.length > HISTORY) s.shift(); });
     notice(null);
+    $("login").hidden = true;
+    $("data").hidden = false;
     render(stats);
   } catch (err) {
     console.error(err);
-    notice(err.status === 401 ? "adm.denied" : "adm.error");
+    if (err.status === 401) {
+      clearInterval(timer);
+      $("data").hidden = true;
+      $("login").hidden = false;
+      notice(submitted ? "adm.badToken" : "adm.denied");
+      $("token").focus();
+    } else {
+      notice("adm.error");
+    }
   }
 }
 
@@ -135,6 +152,14 @@ function schedule() {
   clearInterval(timer);
   if (!paused) timer = setInterval(poll, POLL_MS);
 }
+
+$("login").addEventListener("submit", (e) => {
+  e.preventDefault();
+  token = $("token").value.trim();
+  submitted = true;
+  remember(token);
+  poll().then(schedule);
+});
 
 $("adm-pause").addEventListener("click", (e) => {
   paused = !paused;

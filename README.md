@@ -276,8 +276,9 @@ given shopper. Frontend tests: `node --test "web/tests/*.test.js"`.
 
 The numbers come from `GET /admin/stats`. Traffic figures are kept in the API process, so with
 several API replicas each would report its own share. Set `ADMIN_TOKEN` to require an
-`X-Admin-Token` header (the page sends it from `?token=...`); with no token the route is open,
-which is fine for a local demo and not for a public deployment.
+`X-Admin-Token` header. The dashboard then asks for the token on a small sign-in form and keeps
+it only for the browser session. The shop does not link to the dashboard. With no token the route
+is open, which is fine for a local demo and not for a public deployment.
 
 ## End-to-end test
 
