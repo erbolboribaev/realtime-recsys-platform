@@ -244,6 +244,23 @@ curl "http://127.0.0.1:8000/recommend?user_id=user_00001&explain=true"
 curl -N "http://127.0.0.1:8000/explain/<request_id>"
 ```
 
+## Storefront
+
+The API also serves a small shop page at `/` (plain JavaScript, no build step, files in `web/`).
+Pick a shopper, press View, Cart or Buy under a product, and the list updates a few seconds
+later. A chat panel shows why the list was chosen, using the explanation stream.
+
+```bash
+uvicorn --factory recsys.serving.app:create_app_from_env --port 8000
+# open http://127.0.0.1:8000
+```
+
+Each action is sent to `POST /events` and lands on the `user-events` topic with the id of the
+list it came from, so A/B analysis can credit it to the right variant. The page also runs on
+its own with demo data: open `web/index.html` through any static server with `?mock=1`.
+
+Product names and prices come from `GET /items?ids=...`. Frontend tests: `node --test web/tests/`.
+
 ## Roadmap
 
 | # | Phase | Gate |
@@ -252,7 +269,7 @@ curl -N "http://127.0.0.1:8000/explain/<request_id>"
 | 2 | Features and retrieval: ALS, Qdrant, MLflow, Redis feature job (done); Feast deferred | Recall@50 above the popularity baseline (met offline) |
 | 3 | Ranker and API: LightGBM (ONNX), FastAPI, A/B groups, impressions (done) | NDCG@10 above ALS (met: 0.1271 vs 0.1106), p95 under 100 ms (met: 43.7 ms) |
 | 4 | LLM layer: gateway, worker, SSE, evals, cost cap (done) | Evals pass (met: 100% on 30 unseen cases), daily cost within cap (met: ~$0.00005 per explanation, hard cap enforced) |
-| 5 | Frontend and dashboard: storefront, experiments panel | End-to-end test passes, dashboard shows live data |
+| 5 | Frontend and dashboard: storefront (done), experiments panel | End-to-end test passes, dashboard shows live data |
 | 6 | Kubernetes and Terraform: Helm, Argo CD, KEDA, observability, canary | Full stack on kind, 200 req/s load test |
 
 ## Project layout
@@ -264,7 +281,8 @@ src/recsys/
   sink/              buffering, Parquet writer, Kafka consumer, lake report
   ml/                dataset + time split, metrics, baseline, ALS, index, retrieval, tracking,
                      shared feature logic, rankers, publish
-  serving/           model bundle, Redis feature readers, A/B, recommendation service, API
+  serving/           model bundle, Redis feature readers, A/B, recommendation service, API, storefront
+web/                 shop page (HTML, CSS, JavaScript modules) and its tests
 infra/
   compose/           local Docker Compose stack
   docker/            application image

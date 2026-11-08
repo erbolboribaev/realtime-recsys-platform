@@ -172,3 +172,78 @@ def test_explain_stream_falls_back_to_a_template_when_the_worker_is_silent():
     stream = http.get(body["explain_url"]).text
     assert "event: explanation" in stream and '"source": "template"' in stream
     assert "event: timeout" not in stream
+
+
+class FakeEvents:
+    def __init__(self, fail=False):
+        self.sent, self.fail = [], fail
+
+    def publish(self, event):
+        if self.fail:
+            raise RuntimeError("kafka down")
+        self.sent.append(event)
+
+
+class StoreCatalog:
+    def describe(self, item_id):
+        from recsys.llm.catalog import ItemInfo
+
+        return ItemInfo(item_id, f"Thing {item_id}", "Books", 9.0) if item_id != "missing" else None
+
+
+def storefront_client(events=None, web_dir=None):
+    from recsys.serving.app import Storefront
+
+    service, _, bundle, _ = make_service(1.0)
+    store = Storefront(StoreCatalog(), events or FakeEvents(), web_dir)
+    return TestClient(create_app(service, storefront=store)), bundle
+
+
+def test_items_returns_facts_for_known_ids():
+    http, _ = storefront_client()
+    body = http.get("/items", params={"ids": "a,missing,b"}).json()
+    assert [x["item_id"] for x in body["items"]] == ["a", "b"]
+    assert body["items"][0]["name"] == "Thing a"
+
+
+def test_items_needs_ids():
+    http, _ = storefront_client()
+    assert http.get("/items").status_code == 422
+
+
+def test_action_is_published_as_an_event():
+    events = FakeEvents()
+    http, _ = storefront_client(events)
+    response = http.post(
+        "/events",
+        json={"user_id": "u1", "item_id": "i1", "event_type": "add_to_cart", "request_id": "r1"},
+    )
+    assert response.status_code == 202
+    assert events.sent[0].event_type == "add_to_cart"
+    assert events.sent[0].request_id == "r1"
+    assert response.json()["event_id"] == events.sent[0].event_id
+
+
+def test_unknown_action_type_is_rejected():
+    http, _ = storefront_client()
+    body = {"user_id": "u1", "item_id": "i1", "event_type": "like"}
+    assert http.post("/events", json=body).status_code == 422
+
+
+def test_event_stream_outage_returns_503():
+    http, _ = storefront_client(FakeEvents(fail=True))
+    body = {"user_id": "u1", "item_id": "i1", "event_type": "view"}
+    assert http.post("/events", json=body).status_code == 503
+
+
+def test_storefront_routes_are_absent_without_a_storefront():
+    http, _ = client()
+    assert http.get("/items", params={"ids": "a"}).status_code == 404
+
+
+def test_web_files_are_served_and_do_not_shadow_the_api(tmp_path):
+    (tmp_path / "index.html").write_text("<h1>shop</h1>", encoding="utf-8")
+    http, bundle = storefront_client(web_dir=str(tmp_path))
+    assert "shop" in http.get("/").text
+    assert http.get("/health").json()["status"] == "ok"
+    assert http.get("/recommend", params={"user_id": bundle.user_ids[0]}).status_code == 200

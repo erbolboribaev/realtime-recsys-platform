@@ -50,6 +50,7 @@ class Settings:
     feature_ttl_s: int = 86400
 
     models_dir: str = "models"
+    web_dir: str = "web"  # the storefront files the API serves at /
     ab_treatment_share: float = 0.5
 
     qdrant_url: str = "http://localhost:6333"

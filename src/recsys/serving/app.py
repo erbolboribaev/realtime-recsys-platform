@@ -13,12 +13,16 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Query
 from fastapi import Path as PathParam
 from fastapi.responses import StreamingResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, ConfigDict, Field
 
 from recsys.config import Settings
+from recsys.events.schema import EventType
 from recsys.llm.fallback import store_request, template_for_request
 from recsys.llm.queue import ExplainPublisher, ExplainRequest, load_result
 from recsys.llm.sse import sse_events
 from recsys.serving.service import DependencyError, RecommendationService
+from recsys.serving.storefront import EventPublisher, build_event, describe_items
 
 log = logging.getLogger("recsys.api")
 
@@ -33,8 +37,28 @@ class ExplainSupport:
     catalog: object | None = None  # enables the template fallback when the worker is silent
 
 
+@dataclass
+class Storefront:
+    """What the web page needs: product facts, a place to send actions, and the files to serve."""
+
+    catalog: object
+    events: EventPublisher
+    web_dir: str | None = None
+
+
+class ActionIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    user_id: str = Field(min_length=1, max_length=64)
+    item_id: str = Field(min_length=1, max_length=64)
+    event_type: EventType
+    request_id: str | None = Field(default=None, max_length=64)
+
+
 def create_app(
-    service: RecommendationService, explain_support: ExplainSupport | None = None
+    service: RecommendationService,
+    explain_support: ExplainSupport | None = None,
+    storefront: Storefront | None = None,
 ) -> FastAPI:
     app = FastAPI(title="Recommendation API")
 
@@ -104,6 +128,29 @@ def create_app(
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
 
+    if storefront is not None:
+
+        @app.get("/items")
+        def items(ids: str = Query(min_length=1, max_length=2000)) -> dict:
+            wanted = [part for part in ids.split(",") if part]
+            return {"items": describe_items(storefront.catalog, wanted)}
+
+        @app.post("/events", status_code=202)
+        def post_event(action: ActionIn) -> dict:
+            event = build_event(
+                action.user_id, action.item_id, action.event_type, action.request_id
+            )
+            try:
+                storefront.events.publish(event)
+            except Exception as error:
+                log.warning("could not publish an action", exc_info=True)
+                raise HTTPException(status_code=503, detail="event stream unavailable") from error
+            return {"event_id": event.event_id}
+
+        # Mounted last so it never shadows the API routes above.
+        if storefront.web_dir and Path(storefront.web_dir).is_dir():
+            app.mount("/", StaticFiles(directory=storefront.web_dir, html=True), name="web")
+
     return app
 
 
@@ -146,7 +193,14 @@ def build_service(settings: Settings) -> RecommendationService:
     )
 
 
-def build_explain_support(settings: Settings) -> ExplainSupport:
+def build_catalog():
+    from recsys.events.simulator import EventSimulator, SimulatorConfig
+    from recsys.llm.catalog import SimulatedCatalog
+
+    return SimulatedCatalog(EventSimulator(SimulatorConfig()).catalog)
+
+
+def build_explain_support(settings: Settings, catalog) -> ExplainSupport:
     import redis as redis_lib
 
     from recsys.llm.queue import KafkaExplainPublisher, NullPublisher
@@ -161,17 +215,31 @@ def build_explain_support(settings: Settings) -> ExplainSupport:
     except Exception:
         log.warning("Kafka unavailable: explanations will not be produced", exc_info=True)
         publisher = NullPublisher()
-    from recsys.events.simulator import EventSimulator, SimulatorConfig
-    from recsys.llm.catalog import SimulatedCatalog
+    return ExplainSupport(publisher, redis_lib.Redis.from_url(settings.redis_url), catalog=catalog)
 
-    return ExplainSupport(
-        publisher,
-        redis_lib.Redis.from_url(settings.redis_url),
-        catalog=SimulatedCatalog(EventSimulator(SimulatorConfig()).catalog),
-    )
+
+def build_storefront(settings: Settings, catalog) -> Storefront:
+    from recsys.serving.storefront import KafkaEventPublisher, NullEventPublisher
+
+    try:
+        from kafka import KafkaProducer
+
+        events: EventPublisher = KafkaEventPublisher(
+            KafkaProducer(bootstrap_servers=settings.kafka_bootstrap, linger_ms=20),
+            settings.topic_user_events,
+        )
+    except Exception:
+        log.warning("Kafka unavailable: shopper actions will not be recorded", exc_info=True)
+        events = NullEventPublisher()
+    return Storefront(catalog, events, settings.web_dir)
 
 
 def create_app_from_env() -> FastAPI:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     settings = Settings.from_env()
-    return create_app(build_service(settings), build_explain_support(settings))
+    catalog = build_catalog()  # built once, shared by explanations and the storefront
+    return create_app(
+        build_service(settings),
+        build_explain_support(settings, catalog),
+        build_storefront(settings, catalog),
+    )

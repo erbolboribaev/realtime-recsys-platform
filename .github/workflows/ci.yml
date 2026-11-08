@@ -29,6 +29,13 @@ jobs:
       - name: Tests
         run: pytest -v
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Storefront tests
+        run: node --test web/tests/
+
   compose:
     runs-on: ubuntu-latest
     steps:

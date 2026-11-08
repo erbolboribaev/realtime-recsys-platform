@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="claude:viewport-fit-sides" content="cover">
+<title>Taklif Live</title>
+<meta name="description" content="Live demo of a real-time recommendation platform.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Onest:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<a class="skip" href="#shop" data-i18n="nav.skip">Skip to the shop</a>
+
+<header class="top">
+  <div class="wrap top-in">
+    <a class="logo" href="#top" aria-label="Taklif Live">
+      <svg viewBox="0 0 28 28" width="28" height="28" aria-hidden="true"><rect width="28" height="28" rx="9" fill="var(--ink)"/><path d="M7 15.5h3.2l2.3-6 3.2 10 2.3-4h3" fill="none" stroke="var(--bg)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span>Taklif<b>Live</b></span>
+    </a>
+    <nav class="nav" aria-label="Main">
+      <a href="#shop" data-i18n="nav.shop">Live shop</a>
+      <a href="#how" data-i18n="nav.how">How to use</a>
+    </nav>
+    <div class="top-tools">
+      <div class="seg" role="group" aria-label="Language">
+        <button type="button" data-lang="en" aria-pressed="true">EN</button>
+        <button type="button" data-lang="uz" aria-pressed="false">UZ</button>
+      </div>
+      <button type="button" class="icon-btn" id="theme" aria-label="Switch theme">
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+      </button>
+    </div>
+  </div>
+</header>
+
+<main id="top">
+<section class="hero wrap">
+  <div class="hero-copy">
+    <ul class="tags">
+      <li data-i18n="hero.tag1">Live events</li>
+      <li data-i18n="hero.tag2">A/B-tested ranking</li>
+      <li data-i18n="hero.tag3">AI explanations</li>
+    </ul>
+    <h1 data-i18n="hero.title">Recommendations that change the moment you click</h1>
+    <p class="lead" data-i18n="hero.lead">Pick a shopper, view or buy something, and watch the list re-rank in a few seconds. Every list comes with a short reason for why it was chosen.</p>
+    <div class="cta-row">
+      <a class="btn primary" href="#shop" data-i18n="hero.cta1">Try the live shop</a>
+      <a class="btn" href="#how" data-i18n="hero.cta2">See how it works</a>
+    </div>
+  </div>
+
+  <aside class="chat" aria-labelledby="chat-title">
+    <header class="chat-head">
+      <span class="avatar" aria-hidden="true">T</span>
+      <div>
+        <h2 id="chat-title" data-i18n="chat.title">Why am I seeing these?</h2>
+        <p id="chat-sub" class="muted">–</p>
+      </div>
+      <span class="live"><i></i><span data-i18n="chat.live">live</span></span>
+    </header>
+    <div class="chat-body" id="chat" aria-live="polite"></div>
+    <footer class="chat-foot muted" data-i18n="chat.foot">The answer updates every time your list changes.</footer>
+  </aside>
+</section>
+
+
+<section id="shop" class="shop wrap">
+  <div class="sec-head">
+    <h2 data-i18n="shop.title">Recommended for this shopper</h2>
+    <p class="muted" data-i18n="shop.lead">The cards below are the top results from the ranking API. Actions are sent as real events.</p>
+  </div>
+
+  <div class="toolbar">
+    <label class="field" for="shopper">
+      <span data-i18n="shop.shopper">Shopper</span>
+      <select id="shopper"></select>
+    </label>
+    <button type="button" class="btn" id="random" data-i18n="shop.random">Random shopper</button>
+    <button type="button" class="btn ghost" id="refresh" data-i18n="shop.refresh">Refresh list</button>
+    <span class="status" id="status" role="status"></span>
+  </div>
+
+  <div class="shop-grid">
+    <div class="cards" id="cards" aria-busy="true"></div>
+
+    <aside class="side">
+      <section class="panel" aria-labelledby="act-title">
+        <h3 id="act-title" data-i18n="act.title">This shopper's recent actions</h3>
+        <ul class="acts" id="acts"></ul>
+      </section>
+    </aside>
+  </div>
+</section>
+
+<section id="how" class="how wrap">
+  <div class="sec-head">
+    <h2 data-i18n="how.title">Try it in three steps</h2>
+  </div>
+  <ol class="steps" id="steps"></ol>
+</section>
+</main>
+
+<footer class="foot">
+  <div class="wrap foot-in">
+    <p class="foot-note" data-i18n="foot.note1">All products and shoppers in this demo are made up.</p>
+    <p class="wordmark" aria-hidden="true">Taklif</p>
+  </div>
+</footer>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

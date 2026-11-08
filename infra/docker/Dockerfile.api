@@ -1,12 +1,14 @@
 FROM python:3.12-slim
 
 ENV PYTHONUNBUFFERED=1 \
+    WEB_DIR=/app/web \
     PIP_NO_CACHE_DIR=1
 
 WORKDIR /app
 
 COPY pyproject.toml README.md ./
 COPY src ./src
+COPY web ./web
 RUN pip install ".[serve]"
 
 RUN useradd --create-home appuser
