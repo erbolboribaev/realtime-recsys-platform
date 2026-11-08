@@ -1,0 +1,191 @@
+name: recsys
+
+# Local development stack. `make up` starts the infrastructure and creates the topics;
+# `make pipeline` additionally starts the event simulator and the lake sink.
+
+x-app-env: &app-env
+  KAFKA_BOOTSTRAP: redpanda:9092
+  S3_ENDPOINT: http://minio:9000
+  S3_BUCKET: recsys-lake
+  S3_ACCESS_KEY: minioadmin
+  S3_SECRET_KEY: minioadmin
+  REDIS_URL: redis://redis:6379/0
+
+services:
+  redpanda:
+    image: redpandadata/redpanda:v24.2.7
+    command:
+      - redpanda
+      - start
+      - --mode=dev-container
+      - --smp=1
+      - --memory=1G
+      - --node-id=0
+      - --kafka-addr=internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr=internal://redpanda:9092,external://localhost:19092
+    ports:
+      - "19092:19092"
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -q 'Healthy:.*true'"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+      start_period: 10s
+
+  redpanda-console:
+    image: redpandadata/console:v2.7.2
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKERS: redpanda:9092
+    ports:
+      - "8080:8080"
+
+  topics-init:
+    image: redpandadata/redpanda:v24.2.7
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    restart: "no"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        rpk -X brokers=redpanda:9092 topic create user-events -p 3 || true
+        rpk -X brokers=redpanda:9092 topic create impressions -p 3 || true
+        rpk -X brokers=redpanda:9092 topic create explain-requests -p 3 || true
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: recsys
+      POSTGRES_PASSWORD: recsys
+      POSTGRES_DB: recsys
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U recsys"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  qdrant:
+    image: qdrant/qdrant:v1.12.4
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant-data:/qdrant/storage
+
+  # S3-compatible object store for the data lake. The upstream MinIO images were removed
+  # from Docker Hub and Quay in 2026, so this uses a community MinIO fork that is a
+  # drop-in replacement. Any S3-compatible image works: override with S3_IMAGE.
+  # The lake bucket is created by the sink itself (recsys.sink.consumer.ensure_bucket).
+  minio:
+    image: ${S3_IMAGE:-pgsty/silo:RELEASE.2026-09-16T00-00-00Z}
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+
+  simulator:
+    profiles: ["pipeline"]
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile
+    depends_on:
+      topics-init:
+        condition: service_completed_successfully
+    environment: *app-env
+    command: ["python", "-m", "recsys.events.producer", "--mode", "realtime", "--rate", "20"]
+
+  lake-sink:
+    profiles: ["pipeline"]
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile
+    depends_on:
+      topics-init:
+        condition: service_completed_successfully
+      minio:
+        condition: service_started
+    environment:
+      <<: *app-env
+      SINK_BATCH_SIZE: "200"
+      SINK_FLUSH_INTERVAL_S: "10"
+    command: ["python", "-m", "recsys.sink.consumer"]
+
+  feature-job:
+    profiles: ["pipeline"]
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile
+    depends_on:
+      topics-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_started
+    environment:
+      <<: *app-env
+    command: ["python", "-m", "recsys.features.stream_job"]
+
+  # Recommendation API. Needs models/ from `python -m recsys.ml.publish --index`.
+  api:
+    profiles: ["serve"]
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.api
+    depends_on:
+      redis:
+        condition: service_started
+      qdrant:
+        condition: service_started
+    environment:
+      <<: *app-env
+      QDRANT_URL: http://qdrant:6333
+      MODELS_DIR: /models
+    volumes:
+      - ../../models:/models:ro
+    ports:
+      - "8000:8000"
+
+  # Turns explain requests into LLM explanations. Runs on Linux, so it is not affected by the
+  # kafka-python socket crash seen on Windows. Start it with the key from the project .env:
+  #   docker compose -f infra/compose/docker-compose.yml --env-file .env --profile llm up -d --build explain-worker
+  explain-worker:
+    profiles: ["llm"]
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.api
+    depends_on:
+      topics-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_started
+    environment:
+      <<: *app-env
+      LLM_API_KEY: ${LLM_API_KEY:-${GROQ_API_KEY:-}}
+    restart: unless-stopped
+    command: ["python", "-m", "recsys.llm.worker"]
+
+volumes:
+  postgres-data:
+  qdrant-data:
+  minio-data:
