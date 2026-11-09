@@ -1,5 +1,5 @@
 // Simple stroke icons per category, drawn on a 48px grid.
-const ICONS = {
+const ICONS: Record<string, string> = {
   "Running shoes": '<path d="M5 30c6 0 9-3 11-8l5 4c3 2 7 2 11 3 4 1 7 3 7 6H5z"/><path d="M5 36h38"/>',
   "Sports watches": '<rect x="13" y="12" width="22" height="24" rx="7"/><path d="M18 12l1-7h10l1 7M18 36l1 7h10l1-7M24 19v6l4 3"/>',
   Backpacks: '<rect x="11" y="14" width="26" height="28" rx="8"/><path d="M18 14c0-6 2-9 6-9s6 3 6 9M17 30h14"/>',
@@ -22,6 +22,6 @@ const ICONS = {
   Tents: '<path d="M4 40L24 8l20 32zM24 8v32M24 40l-8-12"/>'
 };
 const FALLBACK = '<rect x="9" y="9" width="30" height="30" rx="8"/>';
-export function iconSvg(category) {
+export function iconSvg(category: string): string {
   return `<svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[category] ?? FALLBACK}</svg>`;
 }

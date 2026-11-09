@@ -21,6 +21,18 @@ jobs:
       - name: Install
         run: pip install -e ".[dev,ml,rank,serve]"
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Web - install, type-check, test and build
+        working-directory: web
+        run: |
+          if [ -f package-lock.json ]; then npm ci; else npm install; fi
+          npm run typecheck
+          npm test
+          npm run build
+
       - name: Install the browser for the end-to-end test
         run: |
           pip install playwright
@@ -35,13 +47,6 @@ jobs:
         run: pytest -v
         env:
           E2E_REQUIRED: "1"
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-
-      - name: Storefront tests
-        run: node --test "web/tests/*.test.js"
 
   compose:
     runs-on: ubuntu-latest

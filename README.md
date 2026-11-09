@@ -246,21 +246,34 @@ curl -N "http://127.0.0.1:8000/explain/<request_id>"
 
 ## Storefront
 
-The API also serves a small shop page at `/` (plain JavaScript, no build step, files in `web/`).
-Pick a shopper, press View, Cart or Buy under a product, and the list updates a few seconds
-later. A chat panel shows why the list was chosen, using the explanation stream.
+The shop and the dashboard are a small TypeScript app built with Vite (sources in `web/src`, no
+framework). The API serves the built pages at `/`. Pick a shopper, press View, Cart or Buy under a
+product, and the list updates a few seconds later. A chat panel shows why the list was chosen,
+using the explanation stream.
 
 ```bash
-uvicorn --factory recsys.serving.app:create_app_from_env --port 8000
+cd web && npm install && npm run build      # once, and after changing the frontend
+cd .. && uvicorn --factory recsys.serving.app:create_app_from_env --port 8000
 # open http://127.0.0.1:8000
 ```
 
-Each action is sent to `POST /events` and lands on the `user-events` topic with the id of the
-list it came from, so A/B analysis can credit it to the right variant. The page also runs on
-its own with demo data: open `web/index.html` through any static server with `?mock=1`.
+For frontend work run `npm run dev` in `web/` instead. Vite serves the pages with hot reload on
+http://localhost:5173 and forwards the API calls to the backend on port 8000 (`API_URL` changes
+that). Add `?mock=1` to run the page on made-up data with no backend at all.
 
-Product names and prices come from `GET /items?ids=...`. `?shopper=user_00009` opens the page as a
-given shopper. Frontend tests: `node --test "web/tests/*.test.js"`.
+Each action is sent to `POST /events` and lands on the `user-events` topic with the id of the
+list it came from, so A/B analysis can credit it to the right variant. Product names and prices
+come from `GET /items?ids=...`. `?shopper=user_00009` opens the page as a given shopper.
+
+The response shapes live in `web/src/types.ts` and the texts in `web/src/locales`. English and
+Uzbek must have the same keys, which the compiler enforces. Checks, all run in CI:
+
+```bash
+cd web
+npm run typecheck   # tsc --noEmit, strict
+npm test            # unit tests (node:test, run on the TypeScript files directly)
+npm run build       # type-check, then the production bundle in web/dist
+```
 
 ## Dashboard
 
@@ -288,6 +301,7 @@ published with the list's id and that the bought product leaves the next list. A
 opens the dashboard and checks that it reflects the traffic and notices a stopped job.
 
 ```bash
+cd web && npm install && npm run build && cd ..   # the test opens the built pages
 pip install playwright && playwright install chromium
 pytest tests/test_e2e_storefront.py -v
 ```
@@ -315,7 +329,7 @@ src/recsys/
   ml/                dataset + time split, metrics, baseline, ALS, index, retrieval, tracking,
                      shared feature logic, rankers, publish
   serving/           model bundle, Redis feature readers, A/B, recommendation service, API, storefront
-web/                 shop page, admin dashboard (HTML, CSS, JavaScript modules) and their tests
+web/                 shop page and admin dashboard (TypeScript, Vite) and their tests
 infra/
   compose/           local Docker Compose stack
   docker/            application image

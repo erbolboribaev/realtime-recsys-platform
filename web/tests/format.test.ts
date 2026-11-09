@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { formatPrice, shopperIds, shopperName, pickRandom, categoryHue, clock } from "../js/format.js";
+import { formatPrice, shopperIds, shopperName, pickRandom, categoryHue, clock } from "../src/format.ts";
 
 test("formatPrice has no decimals", () => assert.equal(formatPrice(1299), "$1,299"));
 test("shopperIds are zero padded and unique", () => {

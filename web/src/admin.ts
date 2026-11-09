@@ -1,45 +1,54 @@
-import { api } from "./api.js";
-import { initChrome } from "./chrome.js";
-import { $, h } from "./dom.js";
-import { clock } from "./format.js";
-import { applyStatic, t } from "./i18n.js";
-import { MIN_LISTS_FOR_COMPARISON, ago, answerShares, lift, serviceState, sparkPath, spendPercent, variantLabel } from "./stats.js";
+import "./styles.css";
+import { api } from "./api.ts";
+import { initChrome } from "./chrome.ts";
+import { $, h } from "./dom.ts";
+import { clock } from "./format.ts";
+import { applyStatic, t } from "./i18n.ts";
+import type { TextKey } from "./i18n.ts";
+import { MIN_LISTS_FOR_COMPARISON, ago, answerShares, lift, serviceState, sparkPath, spendPercent, variantLabel } from "./stats.ts";
+import { HttpError } from "./types.ts";
+import type { ServiceName, Stats } from "./types.ts";
 
 const POLL_MS = 3000;
 const HISTORY = 40;
-function stored() { try { return sessionStorage.getItem("adminToken"); } catch { return null; } }
-function remember(value) { try { sessionStorage.setItem("adminToken", value); } catch { /* private mode: the token lives in memory only */ } }
-let token = new URLSearchParams(location.search).get("token") || stored();
+function stored(): string | null { try { return sessionStorage.getItem("adminToken"); } catch { return null; } }
+function remember(value: string): void { try { sessionStorage.setItem("adminToken", value); } catch { /* private mode: the token lives in memory only */ } }
+let token: string | null = new URLSearchParams(location.search).get("token") || stored();
 if (token) {
   remember(token);
   if (location.search.includes("token=")) history.replaceState(null, "", location.pathname); // keep it out of the address bar
 }
 let submitted = false;
-const series = { rpm: [], p95: [] };
-let latest = null;
+const series = { rpm: [] as number[], p95: [] as (number | null)[] };
+let latest: Stats | null = null;
 let paused = false;
-let timer = null;
+let timer: ReturnType<typeof setInterval> | undefined;
 
-const SERVICES = [["api", "svc.api"], ["redis", "svc.redis"], ["feature_job", "svc.feature_job"], ["explain_worker", "svc.explain_worker"]];
+const SERVICES: [ServiceName, TextKey][] = [
+  ["api", "svc.api"],
+  ["redis", "svc.redis"],
+  ["feature_job", "svc.feature_job"],
+  ["explain_worker", "svc.explain_worker"],
+];
 
-function svg(tag, attrs = {}) {
+function svg(tag: string, attrs: Record<string, string | number> = {}): SVGElement {
   const el = document.createElementNS("http://www.w3.org/2000/svg", tag);
-  Object.entries(attrs).forEach(([k, v]) => el.setAttribute(k, v));
+  Object.entries(attrs).forEach(([k, v]) => el.setAttribute(k, String(v)));
   return el;
 }
 
-function sparkline(values, label) {
+function sparkline(values: (number | null)[], label: string): SVGElement {
   const { line, area, last } = sparkPath(values, 240, 44);
   const el = svg("svg", { class: "spark", viewBox: "0 0 240 44", preserveAspectRatio: "xMinYMid meet", role: "img", "aria-label": label });
-  if (line) {
+  if (line && last) {
     el.append(svg("path", { class: "area", d: area }), svg("path", { class: "line", d: line }), svg("circle", { class: "end", cx: last[0], cy: last[1], r: 4 }));
   }
   return el;
 }
 
-function renderServices(stats) {
+function renderServices(stats: Stats): void {
   $("svc").replaceChildren(...SERVICES.map(([key, label]) => {
-    const service = stats.services?.[key];
+    const service = stats.services[key];
     const state = serviceState(service);
     const since = ago(service?.seconds_since_beat);
     const detail = state === "up" ? (since ? `${t("adm.lastSignal")} ${since === "now" ? t("adm.now") : since}` : t("svc.up")) : state === "down" ? t("svc.down") : t("svc.unknown");
@@ -49,7 +58,7 @@ function renderServices(stats) {
   }));
 }
 
-function kpi(label, value, unit, sub, extra) {
+function kpi(label: string, value: string, unit: string | null, sub: string | null, extra?: Node | null): HTMLElement {
   return h("div", { class: "kpi" },
     h("span", { class: "kpi-label", text: label }),
     h("span", { class: "kpi-value" }, value, unit ? h("small", { text: unit }) : null),
@@ -57,11 +66,10 @@ function kpi(label, value, unit, sub, extra) {
     extra ?? null);
 }
 
-function renderKpis(stats) {
-  const tr = stats.traffic ?? {};
-  const rpm = tr.requests_last_minute ?? 0;
-  const p95 = tr.latency_ms?.p95;
-  const p50 = tr.latency_ms?.p50;
+function renderKpis(stats: Stats): void {
+  const tr = stats.traffic;
+  const rpm = tr.requests_last_minute;
+  const { p95, p50 } = tr.latency_ms;
   const llm = stats.llm;
   const pct = llm ? spendPercent(llm.spent_usd, llm.budget_usd) : 0;
   const meter = h("div", { class: `meter${pct >= 90 ? " warn" : ""}`, role: "img", "aria-label": `${pct}%` }, h("b", { style: `width:${pct}%` }));
@@ -72,17 +80,17 @@ function renderKpis(stats) {
     kpi(t("kpi.spend"), llm ? `$${llm.spent_usd.toFixed(2)}` : "–", null, llm ? `${t("kpi.of")} $${llm.budget_usd.toFixed(2)}` : t("svc.unknown"), llm ? meter : null));
 }
 
-function renderAb(stats) {
-  const variants = stats.traffic?.variants ?? {};
+function renderAb(stats: Stats): void {
+  const variants = stats.traffic.variants;
   const order = ["control", "treatment", ...Object.keys(variants).filter((k) => k !== "control" && k !== "treatment")].filter((k) => variants[k]);
-  const max = Math.max(...order.map((k) => variants[k].rate), 0.0001);
+  const max = Math.max(...order.map((k) => variants[k]?.rate ?? 0), 0.0001);
   if (!order.length) {
     $("ab").replaceChildren(h("p", { class: "muted", text: t("adm.noLists") }));
     $("ab-verdict").textContent = "";
     return;
   }
   $("ab").replaceChildren(...order.map((name) => {
-    const v = variants[name];
+    const v = variants[name] ?? { lists: 0, actions: 0, rate: 0 };
     return h("div", { class: "ab-row" },
       h("div", { class: "ab-name" }, h("span", { text: variantLabel(name) }), h("small", { text: `${v.lists} ${t("adm.lists")} · ${v.actions} ${t("adm.actions")}` })),
       h("div", { class: "bar", role: "img", "aria-label": `${(v.rate * 100).toFixed(1)}%` }, h("b", { style: `width:${Math.round((v.rate / max) * 100)}%` })),
@@ -94,21 +102,25 @@ function renderAb(stats) {
     : `${t("adm.lift")}: ${diff > 0 ? "+" : ""}${diff}%`;
 }
 
-function renderAi(stats) {
+function renderAi(stats: Stats): void {
   const llm = stats.llm;
   const box = $("ai");
   if (!llm) { box.replaceChildren(h("p", { class: "muted", text: t("svc.unknown") })); return; }
   const shares = answerShares(llm.answers);
   if (!shares.total) { box.replaceChildren(h("p", { class: "muted", text: t("adm.noAnswers") })); return; }
-  const rows = [["ai", "s-ai", "chat.llm"], ["template", "s-template", "chat.tpl"], ["from_cache", "s-cache", "adm.cache"]];
+  const rows: { key: "ai" | "template" | "from_cache"; cls: string; color: string; label: TextKey }[] = [
+    { key: "ai", cls: "s-ai", color: "accent", label: "chat.llm" },
+    { key: "template", cls: "s-template", color: "ink", label: "chat.tpl" },
+    { key: "from_cache", cls: "s-cache", color: "line", label: "adm.cache" },
+  ];
   box.replaceChildren(
-    h("div", { class: "stack", role: "img", "aria-label": rows.map(([k, , l]) => `${t(l)} ${shares[k]}%`).join(", ") },
-      ...rows.map(([k, cls]) => h("b", { class: cls, style: `width:${shares[k]}%` }))),
-    h("ul", { class: "legend" }, ...rows.map(([k, cls, label]) =>
-      h("li", {}, h("i", { class: cls, style: `background:var(--${cls === "s-ai" ? "accent" : cls === "s-template" ? "ink" : "line"})` }), h("span", { text: t(label) }), h("span", { text: String(llm.answers[k] ?? 0) })))));
+    h("div", { class: "stack", role: "img", "aria-label": rows.map((r) => `${t(r.label)} ${shares[r.key]}%`).join(", ") },
+      ...rows.map((r) => h("b", { class: r.cls, style: `width:${shares[r.key]}%` }))),
+    h("ul", { class: "legend" }, ...rows.map((r) =>
+      h("li", {}, h("i", { class: r.cls, style: `background:var(--${r.color})` }), h("span", { text: t(r.label) }), h("span", { text: String(llm.answers[r.key] ?? 0) })))));
 }
 
-function render(stats) {
+function render(stats: Stats): void {
   renderServices(stats);
   renderKpis(stats);
   renderAb(stats);
@@ -117,26 +129,27 @@ function render(stats) {
   $("adm-updated").textContent = `${t("adm.updated")} ${clock(new Date())}${mode} · ${t("adm.every")}`;
 }
 
-function notice(key) {
+function notice(key: TextKey | null): void {
   const el = $("adm-notice");
   el.hidden = !key;
   if (key) el.textContent = t(key);
 }
 
-async function poll() {
+async function poll(): Promise<void> {
   try {
     const stats = await api.getStats(token);
     latest = stats;
-    series.rpm.push(stats.traffic?.requests_last_minute ?? 0);
-    series.p95.push(stats.traffic?.latency_ms?.p95 ?? null);
-    Object.values(series).forEach((s) => { while (s.length > HISTORY) s.shift(); });
+    series.rpm.push(stats.traffic.requests_last_minute);
+    series.p95.push(stats.traffic.latency_ms.p95);
+    for (const s of Object.values(series)) while (s.length > HISTORY) s.shift();
     notice(null);
     $("login").hidden = true;
     $("data").hidden = false;
     render(stats);
   } catch (err) {
-    console.error(err);
-    if (err.status === 401) {
+    const denied = err instanceof HttpError && err.status === 401;
+    if (!denied) console.error(err);
+    if (denied) {
       clearInterval(timer);
       $("data").hidden = true;
       $("login").hidden = false;
@@ -148,25 +161,26 @@ async function poll() {
   }
 }
 
-function schedule() {
+function schedule(): void {
   clearInterval(timer);
-  if (!paused) timer = setInterval(poll, POLL_MS);
+  if (!paused) timer = setInterval(() => void poll(), POLL_MS);
 }
 
 $("login").addEventListener("submit", (e) => {
   e.preventDefault();
-  token = $("token").value.trim();
+  token = $<HTMLInputElement>("token").value.trim();
   submitted = true;
   remember(token);
-  poll().then(schedule);
+  void poll().then(schedule);
 });
 
 $("adm-pause").addEventListener("click", (e) => {
+  const button = e.currentTarget as HTMLButtonElement;
   paused = !paused;
-  e.currentTarget.setAttribute("aria-pressed", String(paused));
-  e.currentTarget.textContent = t(paused ? "adm.resume" : "adm.pause");
+  button.setAttribute("aria-pressed", String(paused));
+  button.textContent = t(paused ? "adm.resume" : "adm.pause");
   schedule();
-  if (!paused) poll();
+  if (!paused) void poll();
 });
 
 initChrome({
@@ -176,5 +190,5 @@ initChrome({
   }
 });
 applyStatic();
-poll();
+void poll();
 schedule();

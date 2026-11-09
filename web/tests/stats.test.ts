@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { ago, answerShares, lift, serviceState, sparkPath, spendPercent, variantLabel } from "../js/stats.js";
+import { ago, answerShares, lift, serviceState, sparkPath, spendPercent, variantLabel } from "../src/stats.ts";
 
 test("serviceState separates up, down and not reported", () => {
   assert.equal(serviceState({ alive: true }), "up");
@@ -24,13 +24,14 @@ test("answerShares always add up to 100 when there are answers", () => {
   assert.deepEqual(answerShares({}), { ai: 0, template: 0, from_cache: 0, total: 0 });
 });
 test("lift stays null until both variants have enough lists", () => {
-  assert.equal(lift({ control: { lists: 10, rate: 0.2 }, treatment: { lists: 10, rate: 0.3 } }), null);
-  assert.equal(lift({ control: { lists: 50, rate: 0.2 }, treatment: { lists: 50, rate: 0.3 } }), 50);
-  assert.equal(lift({ control: { lists: 50, rate: 0.2 } }), null);
+  assert.equal(lift({ control: { lists: 10, actions: 2, rate: 0.2 }, treatment: { lists: 10, actions: 3, rate: 0.3 } }), null);
+  assert.equal(lift({ control: { lists: 50, actions: 10, rate: 0.2 }, treatment: { lists: 50, actions: 15, rate: 0.3 } }), 50);
+  assert.equal(lift({ control: { lists: 50, actions: 10, rate: 0.2 } }), null);
 });
 test("sparkPath needs two points and stays inside the box", () => {
   assert.equal(sparkPath([1], 100, 30).line, "");
   const { line, last } = sparkPath([1, 5, 3], 100, 30);
+  assert.ok(last);
   assert.ok(line.startsWith("M"));
   assert.ok(last[0] <= 100 && last[1] >= 0 && last[1] <= 30);
 });

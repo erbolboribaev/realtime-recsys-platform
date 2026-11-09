@@ -50,7 +50,7 @@ class Settings:
     feature_ttl_s: int = 86400
 
     models_dir: str = "models"
-    web_dir: str = "web"  # the storefront files the API serves at /
+    web_dir: str = "web/dist"  # the built shop (npm run build in web/) that the API serves at /
     ab_treatment_share: float = 0.5
     admin_token: str = ""  # when set, /admin/stats needs the X-Admin-Token header
 

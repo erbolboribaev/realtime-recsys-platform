@@ -4,8 +4,9 @@ Only the outside world is replaced: Redis is an in-memory fake, there is no Kafk
 feature job is a loopback that applies each posted action to that same Redis (exactly what
 the stream job does after Kafka). So a click really changes the next list.
 
-Needs ``pip install playwright && playwright install chromium``. Without them the tests are
-skipped; set ``E2E_REQUIRED=1`` (CI does) to turn a missing browser into a failure instead.
+Needs ``pip install playwright && playwright install chromium`` and a built shop (``npm run build``
+in ``web/``). Without them the tests are skipped; set ``E2E_REQUIRED=1`` (CI does) to turn a
+missing browser or build into a failure instead.
 """
 
 import os
@@ -29,7 +30,7 @@ from recsys.serving.app import Storefront, create_app  # noqa: E402
 from test_monitoring import FakeRedis as AdminRedis  # noqa: E402
 from test_service import make_service  # noqa: E402
 
-WEB_DIR = Path(__file__).resolve().parents[1] / "web"
+WEB_DIR = Path(__file__).resolve().parents[1] / "web" / "dist"  # made by `npm run build` in web/
 
 
 class Catalog:
@@ -57,6 +58,11 @@ def free_port() -> int:
 
 @pytest.fixture()
 def stack():
+    if not (WEB_DIR / "index.html").exists():
+        message = "web/dist is missing: run `npm install && npm run build` in web/"
+        if os.environ.get("E2E_REQUIRED"):
+            pytest.fail(message)
+        pytest.skip(message)
     service, _, bundle, feature_redis = make_service(1.0)
     events = LoopbackEvents(feature_redis)
     admin_redis = AdminRedis()
