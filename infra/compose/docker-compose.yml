@@ -161,6 +161,7 @@ services:
       <<: *app-env
       QDRANT_URL: http://qdrant:6333
       MODELS_DIR: /models
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-}  # set it in .env (use --env-file .env) to protect /admin/stats
     volumes:
       - ../../models:/models:ro
     ports:
